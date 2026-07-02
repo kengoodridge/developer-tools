@@ -376,6 +376,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             pendingWebPermissionRequest?.deny()
+            clearPendingWebPermissionRequest()
             pendingWebPermissionRequest = request
             pendingGrantedResources = requestedResources.toTypedArray()
             webPermissionLauncher.launch(missingPermissions.toTypedArray())
