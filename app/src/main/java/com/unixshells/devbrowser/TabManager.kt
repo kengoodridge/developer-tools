@@ -3,6 +3,7 @@ package com.unixshells.devbrowser
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -24,7 +25,8 @@ class TabManager(
     private val onTabListChanged: () -> Unit,
     private val onPageStarted: (String) -> Unit,
     private val onPageFinished: (String) -> Unit,
-    private val onTitleChanged: (String) -> Unit
+    private val onTitleChanged: (String) -> Unit,
+    private val onPermissionRequest: (PermissionRequest) -> Unit
 ) {
     companion object {
         private const val TAG = "TabManager"
@@ -139,6 +141,10 @@ class TabManager(
                     tab.favicon = icon
                     onTabListChanged()
                 }
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest) {
+                this@TabManager.onPermissionRequest(request)
             }
         }
     }

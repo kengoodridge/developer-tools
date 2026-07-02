@@ -1,10 +1,12 @@
 package com.unixshells.devbrowser
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
@@ -22,8 +24,10 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.*
 import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
+import androidx.core.content.ContextCompat
 import android.util.Log
 import java.net.URLEncoder
 
@@ -59,6 +63,30 @@ class MainActivity : AppCompatActivity() {
     private var isTabStripVisible = false
     private var dockMode = DockMode.BOTTOM
     private lateinit var prefs: SharedPreferences
+    private var pendingWebPermissionRequest: PermissionRequest? = null
+    private var pendingGrantedResources: Array<String> = emptyArray()
+
+    private val webPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val request = pendingWebPermissionRequest
+        val grantedResources = pendingGrantedResources
+        clearPendingWebPermissionRequest()
+
+        if (request == null) return@registerForActivityResult
+
+        val allGranted = results.values.all { it }
+        if (allGranted) {
+            request.grant(grantedResources)
+        } else {
+            request.deny()
+            Toast.makeText(
+                this,
+                "Camera or microphone permission denied",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     enum class DockMode { BOTTOM, RIGHT }
 
@@ -133,7 +161,8 @@ class MainActivity : AppCompatActivity() {
             onTabListChanged = { updateTabStrip() },
             onPageStarted = { url -> urlBar.setText(url) },
             onPageFinished = { url -> urlBar.setText(url) },
-            onTitleChanged = { _ -> updateTabStrip() }
+            onTitleChanged = { _ -> updateTabStrip() },
+            onPermissionRequest = { request -> handleWebPermissionRequest(request) }
         )
 
         tabManager.updateDesktopMode(prefs.getBoolean("desktop_mode_default", true))
@@ -314,6 +343,49 @@ class MainActivity : AppCompatActivity() {
         devToolsServer = DevToolsServer(this@MainActivity, DEVTOOLS_PORT).apply { start() }
 
         Log.d(TAG, "Servers started - HTTP:$httpPort WS:$wsPort DevTools:$DEVTOOLS_PORT")
+    }
+
+    private fun handleWebPermissionRequest(request: PermissionRequest) {
+        runOnUiThread {
+            val requestedResources = request.resources.filter {
+                it == PermissionRequest.RESOURCE_AUDIO_CAPTURE ||
+                    it == PermissionRequest.RESOURCE_VIDEO_CAPTURE
+            }
+
+            if (requestedResources.isEmpty()) {
+                request.deny()
+                return@runOnUiThread
+            }
+
+            val androidPermissions = buildList {
+                if (PermissionRequest.RESOURCE_VIDEO_CAPTURE in requestedResources) {
+                    add(Manifest.permission.CAMERA)
+                }
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in requestedResources) {
+                    add(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+
+            val missingPermissions = androidPermissions.filter { permission ->
+                ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
+            }
+
+            if (missingPermissions.isEmpty()) {
+                request.grant(requestedResources.toTypedArray())
+                return@runOnUiThread
+            }
+
+            pendingWebPermissionRequest?.deny()
+            clearPendingWebPermissionRequest()
+            pendingWebPermissionRequest = request
+            pendingGrantedResources = requestedResources.toTypedArray()
+            webPermissionLauncher.launch(missingPermissions.toTypedArray())
+        }
+    }
+
+    private fun clearPendingWebPermissionRequest() {
+        pendingWebPermissionRequest = null
+        pendingGrantedResources = emptyArray()
     }
 
     // ─── DevTools ────────────────────────────────────────
@@ -688,6 +760,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        pendingWebPermissionRequest?.deny()
+        clearPendingWebPermissionRequest()
         super.onDestroy()
         cdpBridge?.stop()
         devToolsServer?.stop()
