@@ -144,7 +144,7 @@ class TabManager(
             }
 
             override fun onPermissionRequest(request: PermissionRequest) {
-                onPermissionRequest(request)
+                this@TabManager.onPermissionRequest(request)
             }
         }
     }
